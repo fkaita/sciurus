@@ -2,7 +2,6 @@ import cv2
 import os
 import numpy as np
 import dlib
-from imutils import face_utils
 
 
 img = cv2.imread('resources/lenna.png')
