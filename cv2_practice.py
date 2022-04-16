@@ -2,14 +2,23 @@ import cv2
 import os
 import numpy as np
 import dlib
+from imutils import face_utils
 
 
-img = cv2.imread('resources/lenna.png')
+img = cv2.imread('/Users/spkaikai/Documents/Tsukuba/resources/front_face.jpeg')
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor(
     '/Users/spkaikai/Documents/Tsukuba/resources/shape_predictor_68_face_landmarks.dat')  # http://dlib.net/files/
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 rects = detector(gray, 0)
+size = img.shape
+
+print(size)
+
+print(len(rects))
+if len(rects) == 0:
+    print('No face found!')
+
 for rect in rects:
     shape0 = predictor(gray, rect)
     shape0 = np.array(face_utils.shape_to_np(shape0))
@@ -46,7 +55,7 @@ model_points = np.array([
     (150.0, -150.0, -125.0)      # Right mouth corner
 ])
 
-size = img.shape
+
 focal_length = size[1]
 center = (size[1]/2, size[0]/2)
 camera_matrix = np.array(
