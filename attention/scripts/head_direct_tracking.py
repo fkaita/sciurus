@@ -361,22 +361,29 @@ def main():
     detection_timestamp = rospy.Time.now()
 
     while not rospy.is_shutdown():
-        # 正規化されたオブジェクトの座標を取得
-
-        pos_x, pos_y = 0, 0
-        n = 5
-        for i in range(n):
-            object_position = object_tracker.get_object_position()
-            pos_x += object_position.x
-            pos_y += object_position.y
-            time.sleep(1)
-
-        object_position.x = pos_x/n
-        object_position.y = pos_y/n
 
         if object_tracker.object_detected():
             detection_timestamp = rospy.Time.now()
-            look_object = True
+            position_map = []
+            past_time = 0
+
+            while past_time < 5.0:
+                object_position = object_tracker.get_object_position()
+                position_map.append([object_position.x, object_position.y])
+                past_time = (rospy.Time.now() - init_timestamp).to_sec()
+
+            H, _, _ = np.histogram2d(np.array(object_position).T[0], np.array(
+                object_position).T[1], bins=(9, 9))
+
+            target_loc = np.where(H == np.amax(H))
+
+            if target_loc[0] in range(3, 6) & target_loc[1] in range(3, 6):
+                look_object = False  # person is looking at me.
+            else:
+                look_object = True
+                target_position.x = target_loc[0] - 4
+                target_position.y = target_loc[1] - 4
+
         else:
             lost_time = rospy.Time.now() - detection_timestamp
             # 一定時間オブジェクトが見つからない場合は初期角度に戻る
@@ -387,12 +394,16 @@ def main():
             # オブジェクトが画像中心にくるように首を動かす		＜ー首ガクガク問題
             if math.fabs(object_position.x) > THRESH_X:
                 # quadlatic is better than linear
-                yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X
-                # yaw_angle += - 0.02 * math.degrees(math.atan(object_position.x * 2 * math.tan(math.radians(h_view/2))))
+                # yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X
+                yaw_angle += - 0.6 * \
+                    math.degrees(math.atan(target_position.x * 2 *
+                                 math.tan(math.radians(h_view/2))))
 
             if math.fabs(object_position.y) > THRESH_Y:
-                pitch_angle += object_position.y * math.fabs(object_position.y) * OPERATION_GAIN_Y
-                # pitch_angle += 0.02 * math.degrees(math.atan(object_position.y * 2 * math.tan(math.radians(v_view/2))))
+                # pitch_angle += object_position.y * math.fabs(object_position.y) * OPERATION_GAIN_Y
+                pitch_angle += 0.6 * \
+                    math.degrees(math.atan(target_position.y * 2 *
+                                 math.tan(math.radians(v_view/2))))
 
             # 首の制御角度を制限する
             if yaw_angle > MAX_YAW_ANGLE:
@@ -404,6 +415,14 @@ def main():
                 pitch_angle = MAX_PITCH_ANGLE
             if pitch_angle < MIN_PITCH_ANGLE:
                 pitch_angle = MIN_PITCH_ANGLE
+
+            neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
+            r.sleep(60*5)
+
+            yaw_angle = INITIAL_YAW_ANGLE
+            pitch_angle = INITIAL_PITCH_ANGLE
+
+            neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
 
         else:
             # ゆっくり初期角度へ戻る
@@ -419,7 +438,7 @@ def main():
             else:
                 pitch_angle = INITIAL_PITCH_ANGLE
 
-        neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
+            neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
 
         r.sleep()
 
