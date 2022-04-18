@@ -32,6 +32,7 @@ class ObjectTracker:
             "/sciurus17/camera/color/image_raw", Image, self._image_callback, queue_size=1)
         self._image_pub = rospy.Publisher("~output_image", Image, queue_size=1)
         self._object_rect = [0, 0, 0, 0]
+        self._object_target = [0, 0]
         self._image_shape = Point()
         self._object_detected = False
 
@@ -72,7 +73,7 @@ class ObjectTracker:
         #        self._object_rect[0] + self._object_rect[2] * 0.5,
         #        self._object_rect[1] + self._object_rect[3] * 0.5,
         #        0)
-        object_center = self._object_target
+        object_center = Point(self._object_target[0], self._object_target[0], 0)
 
         # 画像の中心を0, 0とした座標系に変換
         translated_point = Point()
@@ -124,8 +125,8 @@ class ObjectTracker:
                 # 抽出した長方形を画像に描画する
                 cv2.rectangle(bgr_image,
                               (rect[0], rect[1]),
-                    (rect[0] + rect[2], rect[1] + rect[3]),
-                    (0, 0, 255), thickness=2)
+                              (rect[0] + rect[2], rect[1] + rect[3]),
+                              (0, 0, 255), thickness=2)
 
                 self._object_rect = rect
                 self._object_detected = True
@@ -186,9 +187,9 @@ class ObjectTracker:
             # 目を検出したら、対象のrect(座標と大きさ)を記録する
             if len(eyes) > 0:
                 cv2.rectangle(bgr_image,
-                        (face[0], face[1]),
-                    (face[0]+face[2], face[1]+face[3]),
-                        (0, 0, 255), 2)
+                              (face[0], face[1]),
+                              (face[0]+face[2], face[1]+face[3]),
+                              (0, 0, 255), 2)
 
                 self._object_rect = face
                 self._object_detected = True
@@ -215,18 +216,15 @@ class ObjectTracker:
             (150.0, -150.0, -125.0)      # Right mouth corner
         ])
 
-        size = img.shape
+        size = bgr_image.shape
         focal_length = size[1]
         center = (size[1]/2, size[0]/2)
-        camera_matrix = np.array(
-            [[focal_length, 0, center[0]],
-          [0, focal_length, center[1]],
-          [0, 0, 1]], dtype="double"
-        )
+        camera_matrix = np.array([[focal_length, 0, center[0]], [
+                                 0, focal_length, center[1]], [0, 0, 1]], dtype="double")
 
-       self._object_detected = False
+        self._object_detected = False
 
-       for rect in rects:
+        for rect in rects:
             shape0 = predictor(gray, rect)
             shape0 = np.array(face_utils.shape_to_np(shape0))
 
@@ -242,9 +240,20 @@ class ObjectTracker:
 
             dist_coeffs = np.zeros((4, 1))  # Assuming no lens distortion
             (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points,
-             image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE)
+                                                                          image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE)
 
-            # p1 = (int(image_points[0][0]), int(image_points[0][1]))
+            (nose_end_point2D, jacobian) = cv2.projectPoints(
+                np.array([(0.0, 0.0, 1000.0)]), rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+
+            p1 = (int(image_points[0][0]), int(image_points[0][1]))
+            p2 = (int(nose_end_point2D[0][0][0]), int(nose_end_point2D[0][0][1]))
+            cv2.line(gray, p1, p2, (255, 0, 0), 2)
+            try:
+                cv2.imshow('output', gray)
+                cv2.waitKey(1)
+            except Exception as err:
+                print(err)
+
             self._object_target = (int(nose_end_point2D[0][0][0]), int(nose_end_point2D[0][0][1]))
 
             self._object_detected = True
@@ -355,7 +364,7 @@ def main():
         # 正規化されたオブジェクトの座標を取得
 
         pos_x, pos_y = 0, 0
-        n=5
+        n = 5
         for i in range(n):
             object_position = object_tracker.get_object_position()
             pos_x += object_position.x
@@ -377,7 +386,8 @@ def main():
         if look_object:
             # オブジェクトが画像中心にくるように首を動かす		＜ー首ガクガク問題
             if math.fabs(object_position.x) > THRESH_X:
-                yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X # quadlatic is better than linear
+                # quadlatic is better than linear
+                yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X
                 # yaw_angle += - 0.02 * math.degrees(math.atan(object_position.x * 2 * math.tan(math.radians(h_view/2))))
 
             if math.fabs(object_position.y) > THRESH_Y:
