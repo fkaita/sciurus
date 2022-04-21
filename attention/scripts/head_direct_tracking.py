@@ -205,7 +205,7 @@ class ObjectTracker:
 
         # BGR画像をグレー画像に変換
         gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
-        
+
         SCALE = 4
 
         # 処理時間短縮のため画像を縮小
@@ -326,6 +326,21 @@ def hook_shutdown():
     neck.set_angle(math.radians(0), math.radians(0), 3.0)
 
 
+def slow_move(current_angle, target_angle, update_gap):
+    # Slowly update the angle from current_angle to target angle by the update pitch
+    # Input angle vector (yaw, pitch) and gap in degrees
+    # return a list of updating degrees [[yaw, pitch], ...]
+
+    current_angle = np.array(current_angle)
+    target_angle = np.array(target_angle)
+    diff_angle = target_angle - current_angle
+    update_n = np.ceil(np.max(np.abs(diff_angle)) / update_gap)
+
+    updates = np.round(np.linspace(current_angle, target_angle, int(update_n+1)), decimals=1)
+
+    return list(updates)
+
+
 def main():
     r = rospy.Rate(60)
 
@@ -389,8 +404,8 @@ def main():
                 look_object = False  # person is looking at me.
             else:
                 look_object = True
-                target_position_x = target_loc[0] - 4
-                target_position_y = target_loc[1] - 4
+                target_position_x = (target_loc[0] - 4)/4
+                target_position_y = (target_loc[1] - 4)/4
 
         else:
             lost_time = rospy.Time.now() - detection_timestamp
@@ -403,13 +418,13 @@ def main():
             if math.fabs(object_position.x) > THRESH_X:
                 # quadlatic is better than linear
                 # yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X
-                yaw_angle += - 0.5 * \
+                yaw_angle += - 0.9 * \
                     math.degrees(math.atan(target_position_x * 2 *
                                  math.tan(math.radians(h_view/2))))
 
             if math.fabs(object_position.y) > THRESH_Y:
                 # pitch_angle += object_position.y * math.fabs(object_position.y) * OPERATION_GAIN_Y
-                pitch_angle += 0.5 * \
+                pitch_angle += 0.9 * \
                     math.degrees(math.atan(target_position_y * 2 *
                                  math.tan(math.radians(v_view/2))))
 
@@ -424,14 +439,19 @@ def main():
             if pitch_angle < MIN_PITCH_ANGLE:
                 pitch_angle = MIN_PITCH_ANGLE
 
-                
-            neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
+            current_angle = [neck.get_current_yaw(), neck.get_current_pitch()]
+            target_angle = [yaw_angle, pitch_angle]
+
+            for angle in slow_move(current_angle, target_angle, RESET_OPERATION_ANGLE):
+                neck.set_angle(math.radians(angle[0]), math.radians(angle[1]))
+
             time.sleep(3)
 
-            yaw_angle = INITIAL_YAW_ANGLE
-            pitch_angle = INITIAL_PITCH_ANGLE
+            current_angle = [neck.get_current_yaw(), neck.get_current_pitch()]
+            target_angle = [INITIAL_YAW_ANGLE, INITIAL_PITCH_ANGLE]
 
-            neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
+            for angle in slow_move(current_angle, target_angle, RESET_OPERATION_ANGLE):
+                neck.set_angle(math.radians(angle[0]), math.radians(angle[1]))
 
         else:
             # ゆっくり初期角度へ戻る
