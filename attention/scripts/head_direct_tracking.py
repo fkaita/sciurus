@@ -205,7 +205,14 @@ class ObjectTracker:
 
         # BGR画像をグレー画像に変換
         gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
-        rects = detector(gray, 0)
+        
+        SCALE = 4
+
+        # 処理時間短縮のため画像を縮小
+        height, width = gray.shape[:2]
+        small_gray = cv2.resize(gray, (int(width/SCALE), int(height/SCALE)))
+
+        rects = detector(small_gray, 0)
 
         model_points = np.array([
             (0.0, 0.0, 0.0),             # Nose tip
@@ -225,7 +232,7 @@ class ObjectTracker:
         self._object_detected = False
 
         for rect in rects:
-            shape0 = predictor(gray, rect)
+            shape0 = predictor(small_gray, rect)
             shape0 = np.array(face_utils.shape_to_np(shape0))
 
         if len(rects) > 0:
@@ -237,6 +244,7 @@ class ObjectTracker:
                 (shape0[48, :]),  # left mouth corner
                 (shape0[54, :])  # right mouth corner
             ], dtype='double')
+            image_points = image_points*SCALE
 
             dist_coeffs = np.zeros((4, 1))  # Assuming no lens distortion
             (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points,
@@ -370,19 +378,19 @@ def main():
             while past_time < 5.0:
                 object_position = object_tracker.get_object_position()
                 position_map.append([object_position.x, object_position.y])
-                past_time = (rospy.Time.now() - init_timestamp).to_sec()
+                past_time = (rospy.Time.now() - detection_timestamp).to_sec()
 
-            H, _, _ = np.histogram2d(np.array(object_position).T[0], np.array(
-                object_position).T[1], bins=(9, 9))
+            H, _, _ = np.histogram2d(np.array(position_map).T[0], np.array(
+                position_map).T[1], bins=(9, 9))
 
             target_loc = np.where(H == np.amax(H))
 
-            if target_loc[0] in range(3, 6) & target_loc[1] in range(3, 6):
+            if (target_loc[0] in range(3, 6)) & (target_loc[1] in range(3, 6)):
                 look_object = False  # person is looking at me.
             else:
                 look_object = True
-                target_position.x = target_loc[0] - 4
-                target_position.y = target_loc[1] - 4
+                target_position_x = target_loc[0] - 4
+                target_position_y = target_loc[1] - 4
 
         else:
             lost_time = rospy.Time.now() - detection_timestamp
@@ -395,14 +403,14 @@ def main():
             if math.fabs(object_position.x) > THRESH_X:
                 # quadlatic is better than linear
                 # yaw_angle += -object_position.x * math.fabs(object_position.x) * OPERATION_GAIN_X
-                yaw_angle += - 0.6 * \
-                    math.degrees(math.atan(target_position.x * 2 *
+                yaw_angle += - 0.5 * \
+                    math.degrees(math.atan(target_position_x * 2 *
                                  math.tan(math.radians(h_view/2))))
 
             if math.fabs(object_position.y) > THRESH_Y:
                 # pitch_angle += object_position.y * math.fabs(object_position.y) * OPERATION_GAIN_Y
-                pitch_angle += 0.6 * \
-                    math.degrees(math.atan(target_position.y * 2 *
+                pitch_angle += 0.5 * \
+                    math.degrees(math.atan(target_position_y * 2 *
                                  math.tan(math.radians(v_view/2))))
 
             # 首の制御角度を制限する
@@ -416,8 +424,9 @@ def main():
             if pitch_angle < MIN_PITCH_ANGLE:
                 pitch_angle = MIN_PITCH_ANGLE
 
+                
             neck.set_angle(math.radians(yaw_angle), math.radians(pitch_angle))
-            r.sleep(60*5)
+            time.sleep(3)
 
             yaw_angle = INITIAL_YAW_ANGLE
             pitch_angle = INITIAL_PITCH_ANGLE
